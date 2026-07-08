@@ -2,7 +2,8 @@ stages:
   - build
 
 variables:
-  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_HOST: "tcp://docker:2375"
+  DOCKER_TLS_CERTDIR: ""
   IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
   IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
   OPENTOFU_VERSION: "1.12.3"
@@ -14,9 +15,15 @@ build-verify-push:
   services:
     - name: docker:29-dind
       alias: docker
+      command: ["--tls=false"]
   tags:
     - k8s
   before_script:
+    - |
+      for i in $(seq 1 30); do
+        docker info && break
+        sleep 2
+      done
     - docker version
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
   script:

@@ -105,10 +105,14 @@ $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
 $CI_REGISTRY_IMAGE:latest
 ```
 
-The CI job uses Docker-in-Docker, so the GitLab Runner must allow Docker builds
-from Kubernetes jobs. If the job cannot connect to the Docker daemon, update
-the runner configuration in `../gitlabr` to support privileged Docker builds or
-move this project to a runner that already supports them.
+The CI job uses Docker-in-Docker. It connects to the `docker:dind` service at
+`tcp://docker:2375` with TLS disabled for this local runner setup, so the
+GitLab Runner must allow privileged Docker services from Kubernetes jobs. If the
+job says it cannot connect to `/var/run/docker.sock`, confirm `.gitlab-ci.yml`
+sets `DOCKER_HOST`. If it cannot connect to `tcp://docker:2375`, update the
+runner configuration in `../gitlabr` so `[runners.kubernetes]` includes
+`privileged = true`, redeploy the runner, or move this project to a runner that
+already supports Docker builds.
 
 ## Runner smoke test
 

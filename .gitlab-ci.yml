@@ -1,0 +1,32 @@
+stages:
+  - build
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
+  OPENTOFU_VERSION: "1.12.3"
+  PACKER_VERSION: "1.15.4"
+
+build-verify-push:
+  stage: build
+  image: docker:29-cli
+  services:
+    - name: docker:29-dind
+      alias: docker
+  tags:
+    - k8s
+  before_script:
+    - docker version
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+  script:
+    - >
+      docker build
+      --build-arg OPENTOFU_VERSION="$OPENTOFU_VERSION"
+      --build-arg PACKER_VERSION="$PACKER_VERSION"
+      --tag "$IMAGE_COMMIT_TAG"
+      --tag "$IMAGE_LATEST_TAG"
+      .
+    - docker run --rm "$IMAGE_COMMIT_TAG" /usr/local/bin/verify-tools.sh
+    - docker push "$IMAGE_COMMIT_TAG"
+    - docker push "$IMAGE_LATEST_TAG"

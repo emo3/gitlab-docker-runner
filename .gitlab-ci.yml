@@ -4,8 +4,9 @@ stages:
 variables:
   DOCKER_HOST: "tcp://docker:2375"
   DOCKER_TLS_CERTDIR: ""
-  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-  IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
+  CI_REGISTRY_INTERNAL: "gitlab-registry.gitlab.svc.cluster.local:5000"
+  IMAGE_COMMIT_TAG: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA"
+  IMAGE_LATEST_TAG: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH:latest"
   OPENTOFU_VERSION: "1.12.3"
   PACKER_VERSION: "1.15.4"
 
@@ -15,7 +16,9 @@ build-verify-push:
   services:
     - name: docker:29-dind
       alias: docker
-      command: ["--tls=false"]
+      command:
+        - "--tls=false"
+        - "--insecure-registry=gitlab-registry.gitlab.svc.cluster.local:5000"
   tags:
     - k8s
   before_script:
@@ -25,7 +28,7 @@ build-verify-push:
         sleep 2
       done
     - docker version
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY_INTERNAL" --username "$CI_REGISTRY_USER" --password-stdin
   script:
     - >
       docker build

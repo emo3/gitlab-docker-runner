@@ -101,8 +101,8 @@ The pipeline builds the image, runs `/usr/local/bin/verify-tools.sh` inside the
 built image, and only then pushes both tags:
 
 ```text
-$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-$CI_REGISTRY_IMAGE:latest
+gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA
+gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:latest
 ```
 
 The CI job uses Docker-in-Docker. It connects to the `docker:dind` service at
@@ -114,6 +114,15 @@ runner configuration in `../gitlabr` so `[runners.kubernetes]` includes
 `privileged = true`, redeploy the runner, or move this project to a runner that
 already supports Docker builds.
 
+The GitLab-provided `CI_REGISTRY` value points at
+`registry.127.0.0.1.nip.io`, which does not work from inside job pods because
+`127.0.0.1` is the pod itself. The pipeline logs in and pushes to the in-cluster
+registry service instead:
+
+```text
+gitlab-registry.gitlab.svc.cluster.local:5000
+```
+
 ## Runner smoke test
 
 After the image is published, use it from a project that can access the `k8s`
@@ -121,7 +130,7 @@ runner:
 
 ```yaml
 developer-image-smoke:
-  image: $CI_REGISTRY_IMAGE:latest
+  image: gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:latest
   tags:
     - k8s
   script:

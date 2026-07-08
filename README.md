@@ -123,6 +123,11 @@ registry service instead:
 gitlab-registry.gitlab.svc.cluster.local:5000
 ```
 
+The CI build passes `--network host` to `docker build`. Without it, containers
+started by the nested Docker daemon can hang while downloading larger files from
+external HTTPS endpoints such as `apk.cgr.dev`, even though the job pod itself
+has working network access.
+
 ## Runner smoke test
 
 After the image is published, use it from a project that can access the `k8s`

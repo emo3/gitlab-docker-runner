@@ -32,6 +32,7 @@ build-verify-push:
   script:
     - >
       docker build
+      --network host
       --build-arg OPENTOFU_VERSION="$OPENTOFU_VERSION"
       --build-arg PACKER_VERSION="$PACKER_VERSION"
       --tag "$IMAGE_COMMIT_TAG"

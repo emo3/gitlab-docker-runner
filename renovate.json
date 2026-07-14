@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on Monday"],
+  "timezone": "America/New_York",
+  "docker": {
+    "pinDigests": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^config\\/upstream-tools\\.env$/"],
+      "matchStrings": ["OPENTOFU_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "opentofu/opentofu",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^config\\/upstream-tools\\.env$/"],
+      "matchStrings": ["PACKER_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "hashicorp/packer",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^config\\/upstream-tools\\.env$/"],
+      "matchStrings": ["TERRAFORM_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "hashicorp/terraform",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}

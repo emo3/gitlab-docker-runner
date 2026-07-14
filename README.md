@@ -12,30 +12,13 @@ trusted base image plus common command-line tools.
 
 ## Tooling
 
-The image installs these Wolfi/APK-managed tools where available:
+The image installs these Wolfi/APK-managed tools listed in:
 
-- AWS CLI v2
-- Bash
-- Docker CLI
-- Git
-- GitHub CLI (`gh`)
-- GitLab CLI (`glab`)
-- Helm
-- jq
-- kubectl
-- make
-- OpenSSH client
-- Python 3.13, pip, and venv support
-- curl, unzip, and CA certificates
-- yq
+[apk-runtime-packages.txt](config/apk-runtime-packages.txt)
 
-The image also installs these upstream release binaries after verification:
+The image also installs these upstream release binaries listed in after verification:
 
-- OpenTofu `1.12.3`
-- Packer `1.15.4`
-
-OpenTofu is used instead of HashiCorp Terraform. There is intentionally no
-`terraform` compatibility symlink; jobs should call `tofu`.
+[upstream-tools.env](config/upstream-tools.env)
 
 ## Quick start
 
@@ -55,7 +38,7 @@ https://gitlab.127.0.0.1.nip.io/users/sign_in
 Build the image locally:
 
 ```bash
-cd $HOME/code/gdr
+cd $HOME/code/gitlab-docker-runner
 docker build -t gdr-runner:dev .
 ```
 
@@ -72,75 +55,140 @@ docker run --rm -it gdr-runner:dev /bin/sh
 docker run --rm -it gdr-runner:dev /bin/bash
 ```
 
-## Version updates
+## Package and version updates
 
-The Dockerfile exposes build arguments for the upstream binaries:
+Packages that users and CI jobs need in the final image live in:
 
-```bash
-docker build \
-  --build-arg OPENTOFU_VERSION=1.12.3 \
-  --build-arg PACKER_VERSION=1.15.4 \
-  -t gdr-runner:dev .
+```text
+config/apk-runtime-packages.txt
 ```
 
-Before changing these defaults, confirm the release is stable and update the
-README, `.gitlab-ci.yml`, and `Dockerfile` together.
+Packages needed only while the Dockerfile builds the image, such as download,
+archive, or signature-verification tools, live in:
+
+```text
+config/apk-build-packages.txt
+```
+
+Use this rule: if a CI job runs the command, add it to the runtime file. If
+only the Dockerfile needs it to construct the image, add it to the build file.
+A package needed in both stages must appear in both files because Docker stages
+do not share installed packages. After changing either file, rebuild and run
+the verifier.
+
+Pinned upstream binary versions live in:
+
+```text
+config/upstream-tools.env
+```
+
+The Dockerfile reads those pins directly. This file is the single source of
+truth for upstream tool versions:
+
+```bash
+docker build -t gdr-runner:dev .
+```
+
+Add a version variable to `config/upstream-tools.env` when adding another
+upstream binary installer. The build fails early when a required pin is empty
+or missing.
+
+Check pinned versions against latest stable upstream releases:
+
+```bash
+scripts/check-tool-versions.sh
+```
+
+Update only `config/upstream-tools.env` to the latest stable upstream versions:
+
+```bash
+scripts/update-tool-versions.sh --write
+```
+
+After changing packages or versions, rebuild and run
+`/usr/local/bin/verify-tools.sh`.
+
+The Wolfi base image is pinned to a multi-platform digest through
+`WOLFI_BASE` in the Dockerfile. Renovate is configured in `renovate.json` to
+check that digest and the three upstream tool pins weekly. APK package names
+remain unversioned so builds receive current security and compatibility fixes
+from the Wolfi repositories. Consequently, the base filesystem is
+reproducible, but the installed APK package set can still change over time.
 
 Verification happens during the build:
 
 - OpenTofu downloads the release zip, SHA256SUMS, certificate, and signature
   from GitHub Releases, verifies the checksum file with Cosign, then verifies
   the zip checksum.
-- Packer downloads the release zip, SHA256SUMS, and signature from
-  `releases.hashicorp.com`, verifies the checksum file with HashiCorp's GPG
-  key, then verifies the zip checksum.
+- Packer and Terraform download release zips, SHA256SUMS, and signatures from
+  `releases.hashicorp.com`, verify checksum files with HashiCorp's GPG key,
+  then verify each zip checksum.
 
 ## GitLab CI
 
-The pipeline builds the image, runs `/usr/local/bin/verify-tools.sh` inside the
-built image, and only then pushes both tags:
+The pipeline uses the `local` Docker executor and does not require host Docker
+or Docker-in-Docker for the image build. It has three stages:
+
+- `build`: builds and pushes the commit-tagged image with BuildKit rootless.
+- `verify`: starts the commit-tagged image as the GitLab job image and runs
+  `/usr/local/bin/verify-tools.sh`.
+- `promote`: copies the verified commit tag to `latest` with `crane`.
+
+The build stage pushes through the in-cluster registry service that is reachable
+from runner job pods:
 
 ```text
 gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA
+```
+
+The promote stage updates:
+
+```text
 gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:latest
 ```
 
-The CI job uses Docker-in-Docker. It connects to the `docker:dind` service at
-`tcp://docker:2375` with TLS disabled for this local runner setup, so the
-GitLab Runner must allow privileged Docker services from Kubernetes jobs. If the
-job says it cannot connect to `/var/run/docker.sock`, confirm `.gitlab-ci.yml`
-sets `DOCKER_HOST`. If it cannot connect to `tcp://docker:2375`, update the
-runner configuration in `../gitlabr` so `[runners.kubernetes]` includes
-`privileged = true`, redeploy the runner, or move this project to a runner that
-already supports Docker builds.
+Pull the latest image and open Bash with the current directory mounted at
+`/workspace`:
 
-The GitLab-provided `CI_REGISTRY` value points at
-`registry.127.0.0.1.nip.io`, which does not work from inside job pods because
-`127.0.0.1` is the pod itself. The pipeline logs in and pushes to the in-cluster
-registry service instead:
-
-```text
-gitlab-registry.gitlab.svc.cluster.local:5000
+```bash
+scripts/shell-into-image.sh
 ```
 
-The CI build passes `--network host` to `docker build`. Without it, containers
-started by the nested Docker daemon can hang while downloading larger files from
-external HTTPS endpoints such as `apk.cgr.dev`, even though the job pod itself
-has working network access.
+Pass another image or commit tag as the first argument when needed:
+
+```bash
+scripts/shell-into-image.sh \
+  registry.127.0.0.1.nip.io/gitlab/gitlab-docker-runner:COMMIT_SHA
+```
+
+If the registry requires authentication, run `docker login
+registry.127.0.0.1.nip.io` first.
+
+BuildKit rootless builds from the repository `Dockerfile` with
+`buildctl-daemonless.sh`, using registry cache at
+`gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:buildkit-cache`.
+
+The GitLab registry advertises `$CI_REGISTRY` as
+`registry.127.0.0.1.nip.io`. That works from the host Docker daemon, but inside
+runner job pods `127.0.0.1` points at the pod itself. The pipeline therefore
+pushes and promotes with `CI_REGISTRY_INTERNAL`, while the verify job uses
+GitLab's normal `$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA` name so the runner can
+pull the image through its configured registry path.
 
 ## Runner smoke test
 
-After the image is published, use it from a project that can access the `k8s`
+After the image is published, use it from a project that can access the `local`
 runner:
 
 ```yaml
 developer-image-smoke:
-  image: gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:latest
+  image: registry.127.0.0.1.nip.io/gitlab/gitlab-docker-runner:latest
   tags:
-    - k8s
+    - local
   script:
     - /usr/local/bin/verify-tools.sh
     - tofu version
+    - terraform version
     - packer version
     - python --version
     - aws --version

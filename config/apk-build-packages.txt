@@ -1,0 +1,8 @@
+# Build-only dependencies used by the Dockerfile.
+# For commands used by CI jobs, use apk-runtime-packages.txt.
+ca-certificates-bundle
+cosign
+curl
+gpg
+gpg-agent
+unzip

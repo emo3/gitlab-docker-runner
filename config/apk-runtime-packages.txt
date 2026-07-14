@@ -1,0 +1,26 @@
+# Packages available to CI jobs in the final image.
+# For build-only dependencies, use apk-build-packages.txt.
+
+# Cloud, container, and infrastructure CLIs.
+aws-cli-2
+docker-cli
+gh
+glab
+helm
+kubectl
+yq
+
+# Shell, network, source-control, and data utilities.
+bash
+ca-certificates-bundle
+curl
+bind-tools
+git
+jq
+openssh-client
+unzip
+
+# Build and scripting tools used directly by CI jobs.
+make
+py3-pip
+python-3.13

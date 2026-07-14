@@ -1,43 +1,158 @@
+include:
+  - template: Jobs/Container-Scanning.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
 stages:
   - build
+  - verify
+  - test
+  - promote
 
 variables:
-  DOCKER_HOST: "tcp://docker:2375"
-  DOCKER_TLS_CERTDIR: ""
   CI_REGISTRY_INTERNAL: "gitlab-registry.gitlab.svc.cluster.local:5000"
-  IMAGE_COMMIT_TAG: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA"
-  IMAGE_LATEST_TAG: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH:latest"
-  OPENTOFU_VERSION: "1.12.3"
-  PACKER_VERSION: "1.15.4"
+  CI_REGISTRY_IMAGE_INTERNAL: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH"
+  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE_INTERNAL:$CI_COMMIT_SHORT_SHA"
+  VERIFY_IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE_INTERNAL:latest"
+  CACHE_IMAGE: "$CI_REGISTRY_IMAGE_INTERNAL:buildkit-cache"
 
-build-verify-push:
+build:
   stage: build
-  image: docker:29-cli
-  services:
-    - name: docker:29-dind
-      alias: docker
-      command:
-        - "--tls=false"
-        - "--insecure-registry=gitlab-registry.gitlab.svc.cluster.local:5000"
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
   tags:
-    - k8s
+    - local
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox --config /tmp/buildkitd.toml
   before_script:
+    - mkdir -p "$HOME/.docker"
     - |
-      for i in $(seq 1 30); do
-        docker info && break
-        sleep 2
-      done
-    - docker version
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY_INTERNAL" --username "$CI_REGISTRY_USER" --password-stdin
+      cat > "$HOME/.docker/config.json" <<EOF
+      {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"},"$CI_REGISTRY_INTERNAL":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
+      EOF
+    - |
+      cat > /tmp/buildkitd.toml <<EOF
+      [registry."${CI_REGISTRY}"]
+        insecure = true
+
+      [registry."${CI_REGISTRY_INTERNAL}"]
+        http = true
+      EOF
+  script:
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --import-cache type=registry,ref="$CACHE_IMAGE",registry.insecure=true \
+        --export-cache type=registry,ref="$CACHE_IMAGE",mode=max,registry.insecure=true \
+        --output type=image,name="$IMAGE_COMMIT_TAG",push=true,registry.insecure=true
+
+verify:
+  stage: verify
+  image:
+    name: "$VERIFY_IMAGE_TAG"
+    entrypoint: [""]
+  tags:
+    - local
+  script:
+    - /usr/local/bin/verify-tools.sh
+
+container_scanning:
+  stage: verify
+  tags:
+    - local
+  needs:
+    - build
+  variables:
+    # The build is pushed to the in-cluster registry before this job starts.
+    CS_IMAGE: "$IMAGE_COMMIT_TAG"
+    CS_REGISTRY_USER: "$CI_REGISTRY_USER"
+    CS_REGISTRY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+    CS_DOCKER_INSECURE: "true"
+    GIT_STRATEGY: fetch
+
+trivy_filesystem:
+  stage: verify
+  image:
+    name: aquasec/trivy:0.69.3
+    entrypoint: [""]
+  tags:
+    - local
   script:
     - >
-      docker build
-      --network host
-      --build-arg OPENTOFU_VERSION="$OPENTOFU_VERSION"
-      --build-arg PACKER_VERSION="$PACKER_VERSION"
-      --tag "$IMAGE_COMMIT_TAG"
-      --tag "$IMAGE_LATEST_TAG"
+      trivy fs
+      --scanners vuln,misconfig,secret
+      --format json
+      --output trivy-filesystem.json
+      --exit-code 0
       .
-    - docker run --rm "$IMAGE_COMMIT_TAG" /usr/local/bin/verify-tools.sh
-    - docker push "$IMAGE_COMMIT_TAG"
-    - docker push "$IMAGE_LATEST_TAG"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - trivy-filesystem.json
+
+trivy_image:
+  stage: verify
+  image:
+    name: aquasec/trivy:0.69.3
+    entrypoint: [""]
+  tags:
+    - local
+  needs:
+    - build
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+    TRIVY_INSECURE: "true"
+  script:
+    - >
+      trivy image
+      --format json
+      --output trivy-image.json
+      --exit-code 0
+      "$IMAGE_COMMIT_TAG"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - trivy-image.json
+
+sbom:
+  stage: verify
+  image:
+    # The regular Syft image is shell-less; GitLab Runner needs /bin/sh to run
+    # this job's script.
+    name: anchore/syft:v1.46.0-debug
+    entrypoint: [""]
+  tags:
+    - local
+  script:
+    - >
+      /syft dir:.
+      -o cyclonedx-json=gl-sbom.cdx.json
+      -o spdx-json=gl-sbom.spdx.json
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      cyclonedx: gl-sbom.cdx.json
+    paths:
+      - gl-sbom.cdx.json
+      - gl-sbom.spdx.json
+
+promote:
+  stage: promote
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  tags:
+    - local
+  before_script:
+    - crane auth login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password "$CI_REGISTRY_PASSWORD"
+    - crane auth login "$CI_REGISTRY_INTERNAL" --username "$CI_REGISTRY_USER" --password "$CI_REGISTRY_PASSWORD"
+  script:
+    - crane copy --insecure "$IMAGE_COMMIT_TAG" "$IMAGE_LATEST_TAG"

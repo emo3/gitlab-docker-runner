@@ -36,6 +36,12 @@ Open GitLab:
 https://gitlab.192.168.86.50.nip.io/users/sign_in
 ```
 
+> **Local-network address:** `192.168.86.50` is a private LAN IP address for
+> this server. The `nip.io` hostname simply maps that address into a convenient
+> name; it does not make the server public. People outside this network must
+> use a publicly reachable hostname/IP (and the corresponding GitLab and
+> registry configuration) instead.
+
 Build the image locally:
 
 ```bash

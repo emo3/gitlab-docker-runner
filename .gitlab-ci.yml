@@ -10,12 +10,11 @@ stages:
   - promote
 
 variables:
-  CI_REGISTRY_INTERNAL: "gitlab-registry.gitlab.svc.cluster.local:5000"
-  CI_REGISTRY_IMAGE_INTERNAL: "$CI_REGISTRY_INTERNAL/$CI_PROJECT_PATH"
-  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE_INTERNAL:$CI_COMMIT_SHORT_SHA"
-  VERIFY_IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-  IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE_INTERNAL:latest"
-  CACHE_IMAGE: "$CI_REGISTRY_IMAGE_INTERNAL:buildkit-cache"
+  # This is the reference used both when BuildKit pushes and when the runner
+  # starts the verify job. Do not push one registry hostname and pull another.
+  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
+  CACHE_IMAGE: "$CI_REGISTRY_IMAGE:buildkit-cache"
 
 build:
   stage: build
@@ -30,15 +29,13 @@ build:
     - mkdir -p "$HOME/.docker"
     - |
       cat > "$HOME/.docker/config.json" <<EOF
-      {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"},"$CI_REGISTRY_INTERNAL":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
+      {"auths":{"$CI_REGISTRY":{"username":"$CI_REGISTRY_USER","password":"$CI_REGISTRY_PASSWORD"}}}
       EOF
     - |
       cat > /tmp/buildkitd.toml <<EOF
       [registry."${CI_REGISTRY}"]
         insecure = true
 
-      [registry."${CI_REGISTRY_INTERNAL}"]
-        http = true
       EOF
   script:
     - |
@@ -53,10 +50,12 @@ build:
 verify:
   stage: verify
   image:
-    name: "$VERIFY_IMAGE_TAG"
+    name: "$IMAGE_COMMIT_TAG"
     entrypoint: [""]
   tags:
     - local
+  needs:
+    - build
   script:
     - /usr/local/bin/verify-tools.sh
 
@@ -153,6 +152,5 @@ promote:
     - local
   before_script:
     - crane auth login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password "$CI_REGISTRY_PASSWORD"
-    - crane auth login "$CI_REGISTRY_INTERNAL" --username "$CI_REGISTRY_USER" --password "$CI_REGISTRY_PASSWORD"
   script:
     - crane copy --insecure "$IMAGE_COMMIT_TAG" "$IMAGE_LATEST_TAG"

@@ -2,25 +2,25 @@
 # For build-only dependencies, use apk-build-packages.txt.
 
 # Cloud, container, and infrastructure CLIs.
-aws-cli-2
-docker-cli
-gh
-glab
-helm
-kubectl
-yq
+aws-cli-2 # verify: aws --version
+docker-cli # verify: docker --version
+gh # verify: gh --version
+glab # verify: glab --version
+helm # verify: helm version --short
+kubectl # verify: kubectl version --client=true
+yq # verify: yq --version
 
 # Shell, network, source-control, and data utilities.
-bash
+bash # verify: bash --version
 ca-certificates-bundle
-curl
-bind-tools
-git
-jq
-openssh-client
-unzip
+curl # verify: curl --version
+bind-tools # verify: dig -v
+git # verify: git --version
+jq # verify: jq --version
+openssh-client # verify: ssh -V && command -v scp
+unzip # verify: unzip -v
 
 # Build and scripting tools used directly by CI jobs.
-make
-py3-pip
-python-3.13
+make # verify: make --version
+py3-pip # verify: pip --version
+python-3.13 # verify: python --version; python3 --version

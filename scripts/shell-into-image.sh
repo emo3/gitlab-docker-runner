@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-DEFAULT_IMAGE="registry.127.0.0.1.nip.io/gitlab/gitlab-docker-runner:latest"
+DEFAULT_IMAGE="registry.192.168.86.50.nip.io/gitlab/gitlab-docker-runner:latest"
 IMAGE="${1:-${GDR_IMAGE:-${DEFAULT_IMAGE}}}"
 
 printf 'Pulling %s\n' "${IMAGE}"

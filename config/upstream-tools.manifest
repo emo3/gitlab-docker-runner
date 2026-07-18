@@ -1,0 +1,4 @@
+# output-name|source|version-variable|version-command|version-output-prefix
+tofu|opentofu|OPENTOFU_VERSION|tofu version|OpenTofu v
+packer|hashicorp|PACKER_VERSION|packer version|Packer v
+terraform|hashicorp|TERRAFORM_VERSION|terraform version|Terraform v

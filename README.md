@@ -16,9 +16,10 @@ The image installs these Wolfi/APK-managed tools listed in:
 
 [apk-runtime-packages.txt](config/apk-runtime-packages.txt)
 
-The image also installs these upstream release binaries listed in after verification:
+The image also installs these upstream release binaries after verification.
+Their source and version-output rules are listed in:
 
-[upstream-tools.env](config/upstream-tools.env)
+[upstream-tools.manifest](config/upstream-tools.manifest)
 
 ## Quick start
 
@@ -32,7 +33,7 @@ bash scripts/check_status.sh
 Open GitLab:
 
 ```text
-https://gitlab.127.0.0.1.nip.io/users/sign_in
+https://gitlab.192.168.86.50.nip.io/users/sign_in
 ```
 
 Build the image locally:
@@ -70,50 +71,52 @@ archive, or signature-verification tools, live in:
 config/apk-build-packages.txt
 ```
 
+For a runtime CLI, add its smoke command on the same line, for example
+`my-tool # verify: my-tool --version`. The verifier installs every listed
+package and runs every `verify:` command, so no verifier-script change is
+needed when adding a tool.
+
 Use this rule: if a CI job runs the command, add it to the runtime file. If
 only the Dockerfile needs it to construct the image, add it to the build file.
 A package needed in both stages must appear in both files because Docker stages
 do not share installed packages. After changing either file, rebuild and run
 the verifier.
 
-Pinned upstream binary versions live in:
+The latest stable upstream binary versions are resolved during every image
+build from their GitHub Releases. The resolved versions are recorded in the
+image at:
 
 ```text
-config/upstream-tools.env
+/etc/gdr/upstream-tools.env
 ```
 
-The Dockerfile reads those pins directly. This file is the single source of
-truth for upstream tool versions:
+Their install source, command, and version-output format live in:
+
+```text
+config/upstream-tools.manifest
+```
+
+The tool manifest defines the release source and version-output format:
 
 ```bash
 docker build -t gdr-runner:dev .
 ```
 
-Add a version variable to `config/upstream-tools.env` when adding another
-upstream binary installer. The build fails early when a required pin is empty
-or missing.
-
-Check pinned versions against latest stable upstream releases:
+Add the release lookup to `scripts/resolve-latest-tool-versions.sh` and a
+corresponding manifest entry when adding another upstream binary installer.
+To see the versions that a new build will resolve, run:
 
 ```bash
-scripts/check-tool-versions.sh
-```
-
-Update only `config/upstream-tools.env` to the latest stable upstream versions:
-
-```bash
-scripts/update-tool-versions.sh --write
+sh scripts/resolve-latest-tool-versions.sh
 ```
 
 After changing packages or versions, rebuild and run
 `/usr/local/bin/verify-tools.sh`.
 
-The Wolfi base image is pinned to a multi-platform digest through
-`WOLFI_BASE` in the Dockerfile. Renovate is configured in `renovate.json` to
-check that digest and the three upstream tool pins weekly. APK package names
-remain unversioned so builds receive current security and compatibility fixes
-from the Wolfi repositories. Consequently, the base filesystem is
-reproducible, but the installed APK package set can still change over time.
+The Wolfi base uses the `latest` tag and APK package names remain unversioned,
+so every build receives the current stable Wolfi base and repository packages.
+The resulting image is intentionally not reproducible from the Git commit
+alone: rebuilding it later can produce different versions.
 
 Verification happens during the build:
 
@@ -158,18 +161,18 @@ Pass another image or commit tag as the first argument when needed:
 
 ```bash
 scripts/shell-into-image.sh \
-  registry.127.0.0.1.nip.io/gitlab/gitlab-docker-runner:COMMIT_SHA
+  registry.192.168.86.50.nip.io/gitlab/gitlab-docker-runner:COMMIT_SHA
 ```
 
 If the registry requires authentication, run `docker login
-registry.127.0.0.1.nip.io` first.
+registry.192.168.86.50.nip.io` first.
 
 BuildKit rootless builds from the repository `Dockerfile` with
 `buildctl-daemonless.sh`, using registry cache at
 `gitlab-registry.gitlab.svc.cluster.local:5000/$CI_PROJECT_PATH:buildkit-cache`.
 
 The GitLab registry advertises `$CI_REGISTRY` as
-`registry.127.0.0.1.nip.io`. That works from the host Docker daemon, but inside
+`registry.192.168.86.50.nip.io`. That works from the host Docker daemon, but inside
 runner job pods `127.0.0.1` points at the pod itself. The pipeline therefore
 pushes and promotes with `CI_REGISTRY_INTERNAL`, while the verify job uses
 GitLab's normal `$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA` name so the runner can
@@ -182,7 +185,7 @@ runner:
 
 ```yaml
 developer-image-smoke:
-  image: registry.127.0.0.1.nip.io/gitlab/gitlab-docker-runner:latest
+  image: registry.192.168.86.50.nip.io/gitlab/gitlab-docker-runner:latest
   tags:
     - local
   script:

@@ -12,7 +12,9 @@ stages:
 variables:
   # This is the reference used both when BuildKit pushes and when the runner
   # starts the verify job. Do not push one registry hostname and pull another.
-  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  # Include the pipeline ID so a scheduled rebuild of an unchanged commit
+  # cannot overwrite the image used by an earlier pipeline.
+  IMAGE_COMMIT_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA-$CI_PIPELINE_ID"
   IMAGE_LATEST_TAG: "$CI_REGISTRY_IMAGE:latest"
   CACHE_IMAGE: "$CI_REGISTRY_IMAGE:buildkit-cache"
 
